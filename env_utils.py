@@ -1,6 +1,15 @@
 from collections import deque
 import numpy as np
 import matplotlib.pyplot as plt
+import progressbar as pb
+
+def get_rolling_avg(values, n):
+  tmp_values = deque(maxlen=n)
+  avg_values = []
+  for value in values:
+    tmp_values.append(value)
+    avg_values.append(np.mean(tmp_values))
+  return avg_values
 
 def episode(agent):
 
@@ -15,13 +24,9 @@ def episode(agent):
 
   while True:
     actions_info = agent.act(states)
-
-    if train_mode:
-      actions = actions_info['action'].detach().numpy() # extract actions from dict
-      actions = np.clip(actions, -1, 1) # possible for sampled actions to be outside (-1, 1)
-    else:
-      actions = actions_info['mean'].detach().numpy()
-
+    actions = actions_info['actions']
+    actions = actions.detach().numpy()
+    actions = np.clip(actions, -1, 1) # samples can fall outside (-1, 1)
     env_info = env.step(actions)[brain_name]
     next_states = env_info.vector_observations
     rewards = env_info.rewards
@@ -42,23 +47,47 @@ def run(agent):
 
   config = agent.config
   episodes = config.get('episodes', 1)
-  print_every = config.get('print_every', None)
-  plot_every = config.get('plot_every', None)
 
-  plot_scores = []
-  tmp_scores = deque(maxlen=100)
+  train_mode = config.get('train_mode', True)
+  if train_mode:
+    timer = pb.ProgressBar(
+      widgets=[
+        'Episode: ', 
+        pb.SimpleProgress(), ' ',
+        pb.Variable('Score'), ' ',
+        pb.AdaptiveETA()
+      ],
+      maxval=episodes
+    ).start()
 
+  scores = []
   for i in range(1, episodes+1):
     score = episode(agent)
-    tmp_scores.append(score)
-    if print_every and i % print_every == 0:
-      print('Episode: {}, Total score (averaged over agents): {}'.format(i, score))
-    if plot_every and i % plot_every == 0:
-      plot_scores.append((i, np.mean(tmp_scores)))
+    scores.append(score)
+    if train_mode:
+      timer.update(i, Score=score)
+  if train_mode:
+    timer.finish()
+  return scores
 
-  if len(plot_scores):
-    x, y = zip(*plot_scores)
-    plt.plot(x, y)
-    plt.xlabel('Episode')
-    plt.ylabel('Average Score')
-    plt.show()
+def plot_episodes(values, label, axis=None, avg_n=100):
+
+  if axis == None:
+    axis = plt
+
+  avg_values = get_rolling_avg(values, avg_n)
+
+  x = range(len(values))
+  axis.plot(x, values, label=label, color='lightblue')
+  axis.plot(x, avg_values, label="Average over {} episodes".format(avg_n), color='blue')
+  axis.legend()
+  
+  if hasattr(axis, 'set_xlabel'):
+    axis.set_xlabel('Episode')
+    axis.set_ylabel(label)
+  else:
+    axis.xlabel('Episode')
+    axis.ylabel(label)
+  
+  if hasattr(axis, 'show'):
+    axis.show()
